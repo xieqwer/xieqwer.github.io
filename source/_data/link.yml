@@ -1,0 +1,25 @@
+- class_name: 1.技术支持
+  class_desc: 本网站的搭建由以下开源作者提供技术支持
+  link_list: 
+    - name: Hexo 
+      link: https://hexo.io/zh-cn/
+      avatar: https://d33wubrfki0l68.cloudfront.net/6657ba50e702d84afb32fe846bed54fba1a77add/827ae/logo.svg
+      descr: 快速、简单且强大的网志框架
+      siteshot: https://source.fomal.cc/siteshot/hexo.io.jpg
+      
+- class_name: 2.友情链接
+  class_desc: 阔爱的朋友们~(233)~
+  link_list:
+    - name: M.Y
+      link: https://czxh.top
+      avatar: /image/link/czxh.jpg
+      descr: UKY的全栈✌misc手M.Y！！！
+      
+    - name: 大鹅
+      link: https://xxxqfs.github.io/
+      avatar: /image/link/dae.jpg
+      descr: UKY的天才re手大鹅！！！
+    - name: l4n
+      link: https://www.lancerorz.top
+      avatar: /image/link/l4n.jpg
+      descr: UKFC的神仙re手，re的神！！！
