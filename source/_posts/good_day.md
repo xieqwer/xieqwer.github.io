@@ -7,7 +7,8 @@ description: 博客发布文章测试。。。。。。。。。。。。。。�
 categories:
   - 其他
 tags:
-  - test.???
+  - test
+  - 佛曰
 ---
 # Here is a flag,can you find it?
 ### thats interesting...
