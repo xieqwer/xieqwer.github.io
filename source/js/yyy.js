@@ -1,173 +1,332 @@
-// 樱花飘落特效
+// 樱花飘落特效 v5 — 拖拽散落 + 跟随上限 + 定时生成
 (function() {
-    // 配置参数
-    const config = {
-        // 樱花数量
-        sakuraCount: 42,
-        // 樱花下落速度
-        fallSpeed: 0.1,
-        // 樱花摆动幅度
-        swingMagnitude: 50,
-        // 樱花颜色 (可以设置为粉色系的不同颜色)
-        colors: [
-            'rgba(255, 183, 197, 0.7)',  // 浅粉色
-            'rgba(255, 192, 203, 0.7)',  // 粉色
-            'rgba(255, 182, 193, 0.7)',  // 浅玫瑰粉
-            'rgba(255, 209, 220, 0.7)',  // 淡粉色
-            'rgba(255, 160, 122, 0.7)'   // 浅珊瑚色
-        ],
-        // 樱花大小范围 (最小和最大半径)
-        minRadius: 5,
-        maxRadius: 15,
-        // 是否启用点击生成更多樱花
-        enableClick: true
+    var canvas = document.createElement('canvas');
+    canvas.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9998';
+    document.body.appendChild(canvas);
+    var ctx = canvas.getContext('2d');
+
+    var W, H;
+    function resize() { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
+    resize();
+    window.addEventListener('resize', resize);
+
+    var mouseX = -999, mouseY = -999;
+    var prevMouseX = -999, prevMouseY = -999;
+    var mouseSpeedX = 0, mouseSpeedY = 0, mouseSpeed = 0;
+    var smoothSpeedX = 0, smoothSpeedY = 0, smoothSpeed = 0;
+    var CORE_RADIUS = 1;
+    var ORBIT_RADIUS = 150;
+    var SUCK_RADIUS = 240;
+    var FOLLOW_LIMIT = 30;
+
+    var prevSpeedX = 0, prevSpeedY = 0;
+    var orbitDir = 1;
+
+    document.addEventListener('mousemove', function(e) {
+        prevMouseX = mouseX;
+        prevMouseY = mouseY;
+        mouseX = e.clientX;
+        mouseY = e.clientY;
+        if (prevMouseX > -999) {
+            mouseSpeedX = mouseX - prevMouseX;
+            mouseSpeedY = mouseY - prevMouseY;
+            mouseSpeed = Math.sqrt(mouseSpeedX * mouseSpeedX + mouseSpeedY * mouseSpeedY);
+            var a2 = 0.25;
+            smoothSpeedX = smoothSpeedX * (1 - a2) + mouseSpeedX * a2;
+            smoothSpeedY = smoothSpeedY * (1 - a2) + mouseSpeedY * a2;
+            smoothSpeed = Math.sqrt(smoothSpeedX * smoothSpeedX + smoothSpeedY * smoothSpeedY);
+            var cross = prevSpeedX * smoothSpeedY - prevSpeedY * smoothSpeedX;
+            if (Math.abs(cross) > 2 && smoothSpeed > 3) {
+                orbitDir = orbitDir * 0.88 + (cross > 0 ? -1 : 1) * 0.12;
+            }
+            prevSpeedX = smoothSpeedX;
+            prevSpeedY = smoothSpeedY;
+        }
+    });
+    document.addEventListener('mouseleave', function() {
+        mouseX = -999;
+        mouseY = -999;
+        mouseSpeed = 0;
+        smoothSpeed = 0;
+    });
+
+    function edgeBiasedX() {
+        var r = Math.random();
+        if (r < 0.40) return Math.random() * W * 0.32;
+        if (r < 0.80) return W * (0.68 + Math.random() * 0.32);
+        return W * (0.32 + Math.random() * 0.36);
+    }
+
+    function entryPos() {
+        if (Math.random() < 0.35) {
+            return { x: -20 - Math.random() * 40, y: Math.random() * H };
+        } else {
+            return { x: edgeBiasedX(), y: -20 - Math.random() * H * 0.3 };
+        }
+    }
+
+    function drawPetal(ctx, size) {
+        var s = size;
+        ctx.beginPath();
+        ctx.moveTo(0, -s * 0.55);
+        ctx.bezierCurveTo(s * 0.25, -s * 0.38, s * 0.42, -s * 0.02, s * 0.36, s * 0.28);
+        ctx.bezierCurveTo(s * 0.24, s * 0.40, s * 0.06, s * 0.44, 0, s * 0.38);
+        ctx.bezierCurveTo(-s * 0.14, s * 0.28, -s * 0.24, s * 0.02, -s * 0.10, -s * 0.28);
+        ctx.bezierCurveTo(-s * 0.04, -s * 0.46, -s * 0.02, -s * 0.52, 0, -s * 0.55);
+        ctx.closePath();
+    }
+
+    var palettes = [
+        { body: 'rgba(255,192,203,OPACITY)', vein: 'rgba(255,140,160,OPACITY)', base: 'rgba(255,220,230,OPACITY)' },
+        { body: 'rgba(255,183,197,OPACITY)', vein: 'rgba(255,130,150,OPACITY)', base: 'rgba(255,210,225,OPACITY)' },
+        { body: 'rgba(255,209,220,OPACITY)', vein: 'rgba(255,150,170,OPACITY)', base: 'rgba(255,230,240,OPACITY)' },
+        { body: 'rgba(255,175,190,OPACITY)', vein: 'rgba(255,125,145,OPACITY)', base: 'rgba(255,205,220,OPACITY)' },
+        { body: 'rgba(255,218,200,OPACITY)', vein: 'rgba(255,160,130,OPACITY)', base: 'rgba(255,235,225,OPACITY)' },
+    ];
+    var MAX_PETALS = 220;
+
+    var Petal = function(depth, startX, startY) {
+        depth = depth !== undefined ? depth : Math.random();
+        this.depth = depth;
+        if (startX !== undefined) {
+            this.x = startX;
+            this.y = startY;
+        } else {
+            var pos = entryPos();
+            this.x = pos.x;
+            this.y = pos.y;
+        }
+        this.mouseVx = 0;
+        this.mouseVy = 0;
+        this.palette = palettes[Math.floor(Math.random() * palettes.length)];
+        this.alpha = 0.45 + depth * 0.4;
+        this.resetMotion();
     };
 
-    // 创建画布
-    const canvas = document.createElement('canvas');
-    canvas.style.position = 'fixed';
-    canvas.style.top = '0';
-    canvas.style.left = '0';
-    canvas.style.width = '100%';
-    canvas.style.height = '100%';
-    canvas.style.pointerEvents = 'none';
-    canvas.style.zIndex = '9999';
-    document.body.appendChild(canvas);
+    Petal.prototype.resetMotion = function() {
+        var d = this.depth;
+        this.size = 6 + d * 12;
+        this.fallSpeed = 0.15 + d * 0.35;
+        this.rotation = Math.random() * Math.PI * 2;
+        this.rotSpeed = (Math.random() - 0.5) * 0.015 * (1 + d);
+        this.floatPhase = Math.random() * Math.PI * 2;
+        this.floatSpeed = 0.004 + Math.random() * 0.010;
+        this.floatAmp = 0.05 + d * 0.18;
+        this.driftBase = (Math.random() - 0.5) * 0.08;
+        this.windOffset = Math.random() * Math.PI * 2;
+        this.windSpeed = 0.006 + Math.random() * 0.015;
+        this.windResponse = 0.5 + d * 0.8;
+        this.swayPhase = Math.random() * Math.PI * 2;
+        this.swaySpeed = 0.006 + Math.random() * 0.018;
+        this.swayAmp = 0.04 + Math.random() * 0.16;
+    };
 
-    // 设置画布尺寸
-    function resizeCanvas() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-    }
-    resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
+    Petal.prototype.update = function(dt, followerRank, followerCount) {
+        var d = this.depth;
+        this._lastDt = dt;
 
-    // 樱花类
-    class Sakura {
-        constructor() {
-            this.reset();
-        }
+        var floatMod = Math.sin(this.floatPhase) * this.floatAmp;
+        var baseVy = this.fallSpeed + floatMod;
+        this.floatPhase += this.floatSpeed;
 
-        reset() {
-            // 随机位置
-            this.x = Math.random() * canvas.width;
-            this.y = -20 - Math.random() * 20;
-            
-            // 随机大小
-            this.radius = config.minRadius + Math.random() * (config.maxRadius - config.minRadius);
-            
-            // 随机颜色
-            this.color = config.colors[Math.floor(Math.random() * config.colors.length)];
-            
-            // 下落速度
-            this.speed = config.fallSpeed + Math.random() * 3;
-            
-            // 摆动参数
-            this.swingSpeed = 0.1 + Math.random() * 0.1;
-            this.swingPhase = Math.random() * Math.PI;
-            this.swingMagnitude = config.swingMagnitude + Math.random() * 10;
-            
-            // 旋转参数
-            this.rotation = Math.random() * Math.PI * 0.2;
-            this.rotationSpeed = (Math.random() - 0.5) * 0.1;
-            
-            // 花瓣形状参数
-            this.petalCount = 5;
-            this.petalIndent = 0.3 + Math.random() * 0.2;
-        }
+        var breeze = Math.sin(Date.now() * this.windSpeed + this.windOffset) * 0.03;
+        var wind = windForce * this.windResponse;
+        var sway = Math.sin(this.swayPhase) * this.swayAmp;
+        var baseVx = this.driftBase + breeze + wind + sway;
+        this.swayPhase += this.swaySpeed;
 
-        update() {
-            // 更新位置
-            this.y += this.speed;
-            
-            // 摆动效果
-            this.swingPhase += this.swingSpeed;
-            this.x += Math.sin(this.swingPhase) * 0.5;
-            
-            // 旋转
-            this.rotation += this.rotationSpeed;
-            
-            // 如果樱花落到底部，重置到顶部
-            if (this.y > canvas.height + this.radius) {
-                this.reset();
-                this.y = -this.radius;
-            }
-        }
+        var dx = mouseX - this.x;
+        var dy = mouseY - this.y;
+        var dist = Math.sqrt(dx * dx + dy * dy);
 
-        draw(ctx) {
-            ctx.save();
-            ctx.translate(this.x, this.y);
-            ctx.rotate(this.rotation);
-            
-            // 绘制花瓣
-            ctx.beginPath();
-            for (let i = 0; i < this.petalCount; i++) {
-                const angle = (i * 2 * Math.PI) / this.petalCount;
-                const nextAngle = ((i + 1) * 2 * Math.PI) / this.petalCount;
-                
-                // 花瓣外缘点
-                const x1 = Math.cos(angle) * this.radius;
-                const y1 = Math.sin(angle) * this.radius;
-                
-                // 花瓣内凹点
-                const x2 = Math.cos(angle + (nextAngle - angle) * 0.5) * this.radius * this.petalIndent;
-                const y2 = Math.sin(angle + (nextAngle - angle) * 0.5) * this.radius * this.petalIndent;
-                
-                if (i === 0) {
-                    ctx.moveTo(x1, y1);
+        if (dist < SUCK_RADIUS && dist > 1 && mouseX > -999) {
+            var nx = dx / dist;
+            var ny = dy / dist;
+            var tx = -ny;
+            var ty = nx;
+            var isFollower = followerRank >= 0 && followerRank < FOLLOW_LIMIT;
+
+            if (isFollower) {
+                if (dist < CORE_RADIUS) {
+                    var repel = (1 - dist / CORE_RADIUS) * 1.5;
+                    this.x -= nx * repel;
+                    this.y -= ny * repel;
                 } else {
-                    ctx.lineTo(x1, y1);
+                    var it2 = (dist - CORE_RADIUS) / (SUCK_RADIUS - CORE_RADIUS);
+
+                    if (smoothSpeed < 30) {
+                        var followF = (1 - dist / SUCK_RADIUS) * 0.05;
+                        this.mouseVx += smoothSpeedX * followF;
+                        this.mouseVy += smoothSpeedY * followF;
+
+                        if (dist < ORBIT_RADIUS) {
+                            var dir = Math.abs(orbitDir) > 0.15 ? (orbitDir > 0 ? 1 : -1) : 1;
+                            this.x += tx * dir;
+                            this.y += ty * dir;
+                        }
+                        var inward = 0.12 + Math.pow(it2, 1.5) * 0.3;
+                        this.mouseVx += nx * inward;
+                        this.mouseVy += ny * inward;
+                    } else {
+                        var dragForce = (1 - dist / SUCK_RADIUS) * smoothSpeed * 0.04;
+                        this.mouseVx -= nx * dragForce;
+                        this.mouseVy -= ny * dragForce;
+                        this.mouseVx += tx * (Math.random() - 0.5) * dragForce * 4;
+                        this.mouseVy += (Math.random() - 0.5) * dragForce * 3;
+                    }
+
+                    this.mouseVx *= 0.95;
+                    this.mouseVy *= 0.96;
                 }
-                
-                ctx.quadraticCurveTo(x2, y2, x1, y1);
+            } else {
+                var it2 = (dist - CORE_RADIUS) / (SUCK_RADIUS - CORE_RADIUS);
+                this.mouseVx += nx * it2 * 0.01;
+                this.mouseVy += ny * it2 * 0.01;
+                this.mouseVx *= 0.95;
+                this.mouseVy *= 0.96;
             }
-            
-            ctx.closePath();
-            ctx.fillStyle = this.color;
-            ctx.fill();
-            
-            // 绘制花蕊
-            ctx.beginPath();
-            ctx.arc(0, 0, this.radius * 0.2, 0, Math.PI * 2);
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-            ctx.fill();
-            
-            ctx.restore();
+        } else {
+            if (Math.abs(this.mouseVx) > 0.005 || Math.abs(this.mouseVy) > 0.005) {
+                var decay = Math.pow(0.005, this._lastDt ? this._lastDt / 3000 : 16 / 3000);
+                this.mouseVx *= decay;
+                this.mouseVy *= decay;
+            } else {
+                this.mouseVx = 0;
+                this.mouseVy = 0;
+            }
         }
-    }
 
-    // 创建樱花数组
-    const sakuras = [];
-    for (let i = 0; i < config.sakuraCount; i++) {
-        sakuras.push(new Sakura());
-    }
+        this.x += baseVx + this.mouseVx;
+        this.y += baseVy + this.mouseVy;
+        this.rotation += this.rotSpeed;
 
-    // 点击添加更多樱花
-    if (config.enableClick) {
-        canvas.addEventListener('click', (e) => {
-            for (let i = 0; i < 5; i++) {
-                const sakura = new Sakura();
-                sakura.x = e.clientX + (Math.random() - 0.5) * 50;
-                sakura.y = e.clientY + (Math.random() - 0.5) * 50;
-                sakuras.push(sakura);
+        if (this.y > H + 30 || this.x < -50 || this.x > W + 50) {
+            if (petals.length > 140) {
+                this.dead = true;
+            } else {
+                var pos = entryPos();
+                this.x = pos.x;
+                this.y = pos.y;
+                this.mouseVx = 0;
+                this.mouseVy = 0;
+                this.resetMotion();
             }
-        });
+        }
+    };
+
+    Petal.prototype.draw = function(ctx) {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.rotation);
+        var size = this.size;
+        var a = this.alpha;
+        drawPetal(ctx, size);
+        var bodyGrad = ctx.createLinearGradient(0, -size, 0, size * 0.38);
+        bodyGrad.addColorStop(0, this.palette.body.replace('OPACITY', a));
+        bodyGrad.addColorStop(0.7, this.palette.vein.replace('OPACITY', a * 0.55));
+        bodyGrad.addColorStop(1, this.palette.base.replace('OPACITY', a * 0.25));
+        ctx.fillStyle = bodyGrad;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(0, -size * 0.48);
+        ctx.quadraticCurveTo(size * 0.04, size * 0.02, size * 0.02, size * 0.26);
+        ctx.strokeStyle = this.palette.vein.replace('OPACITY', a * 0.25);
+        ctx.lineWidth = size * 0.04;
+        ctx.stroke();
+        ctx.restore();
+    };
+
+    var petals = [];
+    var LAYERS = [
+        { count: 40, dr: [0, 0.3] },
+        { count: 46, dr: [0.3, 0.65] },
+        { count: 28, dr: [0.65, 1.0] },
+    ];
+    LAYERS.forEach(function(layer) {
+        for (var i = 0; i < layer.count; i++) {
+            var d = layer.dr[0] + Math.random() * (layer.dr[1] - layer.dr[0]);
+            petals.push(new Petal(d));
+        }
+    });
+
+    var windForce = 0;
+    var windTimer = 0;
+    function updateWind(dt) {
+        windTimer += dt * 0.0004;
+        windForce = 0.22 + Math.sin(windTimer) * 0.10 + Math.sin(windTimer * 2.7) * 0.05;
     }
 
-    // 动画循环
-    function animate() {
-        const ctx = canvas.getContext('2d');
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        
-        // 更新和绘制所有樱花
-        sakuras.forEach(sakura => {
-            sakura.update();
-            sakura.draw(ctx);
-        });
-        
+    var spawnTimer = 0;
+    var SPAWN_INTERVAL = 3000;
+
+    canvas.addEventListener('click', function(e) {
+        for (var i = 0; i < 5; i++) {
+            var petal = new Petal(
+                Math.random(),
+                e.clientX + (Math.random() - 0.5) * 30,
+                e.clientY + (Math.random() - 0.5) * 30
+            );
+            petal.fallSpeed = 0.35 + Math.random() * 0.4;
+            petal.rotSpeed = (Math.random() - 0.5) * 0.03;
+            petals.push(petal);
+        }
+        while (petals.length > MAX_PETALS) petals.shift();
+    });
+
+    var lastTime = 0;
+    function animate(timestamp) {
+        var dt = lastTime ? Math.min(timestamp - lastTime, 50) : 16;
+        lastTime = timestamp;
+        ctx.clearRect(0, 0, W, H);
+        updateWind(dt);
+
+        spawnTimer += dt;
+        if (spawnTimer > SPAWN_INTERVAL && petals.length < MAX_PETALS) {
+            spawnTimer = 0;
+            var n = 1 + Math.floor(Math.random() * 2);
+            for (var j = 0; j < n; j++) {
+                if (petals.length < MAX_PETALS) {
+                    petals.push(new Petal(Math.random()));
+                }
+            }
+        }
+
+        if (Math.floor(timestamp / 160) !== Math.floor((timestamp - dt) / 160)) {
+            petals.sort(function(a, b) { return a.depth - b.depth; });
+        }
+
+        var followerCount = 0;
+        var ranks = [];
+        for (var i = 0; i < petals.length; i++) {
+            var p = petals[i];
+            var pdx = mouseX - p.x;
+            var pdy = mouseY - p.y;
+            var pdist = Math.sqrt(pdx * pdx + pdy * pdy);
+            if (pdist < SUCK_RADIUS && mouseX > -999) {
+                ranks.push({ idx: i, dist: pdist });
+            }
+        }
+        ranks.sort(function(a, b) { return a.dist - b.dist; });
+        var rankMap = {};
+        for (var k = 0; k < ranks.length; k++) {
+            rankMap[ranks[k].idx] = k;
+        }
+
+        for (var i = 0; i < petals.length; i++) {
+            var rank = rankMap.hasOwnProperty(i) ? rankMap[i] : -1;
+            petals[i].update(dt, rank, ranks.length);
+        }
+
+        var alive = [];
+        for (var i = 0; i < petals.length; i++) {
+            if (!petals[i].dead) {
+                alive.push(petals[i]);
+                petals[i].draw(ctx);
+            }
+        }
+        petals = alive;
+
         requestAnimationFrame(animate);
     }
-
-    // 开始动画
-    animate();
+    requestAnimationFrame(animate);
 })();
